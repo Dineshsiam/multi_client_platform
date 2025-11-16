@@ -1,94 +1,179 @@
-import React, { useState, useEffect } from "react";
 import axios from "axios";
+import { useCallback, useEffect, useState } from "react";
+
+const API = process.env.REACT_APP_API_BASE || "http://localhost:5000";
+
+function KPI({ title, value, icon }) {
+  return (
+    <div className="bg-white/60 backdrop-blur-md p-6 rounded-2xl shadow-md flex-1 border border-gray-100">
+      <div className="text-sm text-gray-500 flex items-center gap-2">
+        <span className="text-indigo-600 text-lg">{icon}</span> {title}
+      </div>
+      <div className="text-3xl font-bold mt-2 text-gray-800">{value}</div>
+    </div>
+  );
+}
 
 export default function Dashboard() {
-  const [msg, setMsg] = useState("");
-  const [all, setAll] = useState([]);
+  const [kpis, setKpis] = useState(null);
+  const [reports, setReports] = useState([]);
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const token = localStorage.getItem("saas_token");
 
-  // ✅ Safely get the saved user from localStorage
-  const storedUser = localStorage.getItem("user");
-  const user = storedUser ? JSON.parse(storedUser) : null;
-
-  // ✅ Fetch messages safely
-  const fetchMessages = async () => {
-    if (!user || !user._id) {
-      console.warn("⚠️ User not logged in or missing _id");
-      return;
-    }
-    try {
-      const res = await axios.get(
-        `http://localhost:5000/api/messages/${user._id}`
-      );
-      setAll(res.data || []);
-    } catch (err) {
-      console.error("❌ Error fetching messages:", err);
-    }
-  };
-
-  // ✅ Send new message
-  const sendMessage = async () => {
-    if (!msg.trim()) return;
-    if (!user || !user._id) {
-      alert("Please log in before sending messages!");
-      return;
-    }
-    try {
-      await axios.post("http://localhost:5000/api/messages", {
-        userId: user._id,
-        message: msg,
-      });
-      setMsg("");
-      fetchMessages();
-    } catch (err) {
-      console.error("❌ Error sending message:", err);
-    }
-  };
-
-  // Load all messages on component mount
+  // Redirect to login if no token
   useEffect(() => {
-    fetchMessages();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!token) {
+      window.location.href = "/login";
+    } else {
+      fetchMetrics();
+      fetchReports();
+    }
+  }, [token]);
+
+  // ✅ Metrics API (keep dashboard/metrics if your backend has it)
+  const fetchMetrics = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/api/dashboard/metrics`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setKpis(res.data.kpis);
+    } catch (err) {
+      console.error("Metrics fetch failed:", err.message);
+    }
+  }, [token]);
+
+  // ✅ Reports API (use /api/reports instead of /api/dashboard/reports)
+  const fetchReports = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/api/reports`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setReports(res.data);
+    } catch (err) {
+      console.error("Reports fetch failed:", err.message);
+    }
+  }, [token]);
+
+  // ✅ Create a new report
+  async function createReport(e) {
+    e.preventDefault();
+    try {
+      const res = await axios.post(
+        `${API}/api/reports`,
+        { title, value: content.length }, // or replace 'value' with another number field
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setReports((prev) => [res.data, ...prev]);
+      setTitle("");
+      setContent("");
+    } catch (err) {
+      console.error("Report creation failed:", err.message);
+    }
+  }
+
+  // ✅ Delete report
+  async function deleteReport(id) {
+    try {
+      await axios.delete(`${API}/api/reports/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setReports((prev) => prev.filter((r) => r._id !== id));
+    } catch (err) {
+      console.error("Delete failed:", err.message);
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-100 to-rose-200 flex flex-col items-center py-10">
-      <div className="bg-white shadow-lg rounded-2xl p-6 w-full max-w-md">
-        <h1 className="text-3xl font-bold text-pink-600 text-center mb-4">
-          💌 Love Notes Dashboard
-        </h1>
+    <div className="space-y-8">
+      <h1 className="text-3xl font-bold text-indigo-700 mb-4">
+        📈 Dashboard Overview
+      </h1>
 
-        <textarea
-          className="border-2 border-pink-400 rounded-lg w-full p-3 text-gray-700 focus:outline-none focus:ring-2 focus:ring-pink-500"
-          placeholder="Write a sweet message..."
-          value={msg}
-          onChange={(e) => setMsg(e.target.value)}
-          rows={3}
+      {/* KPI Section */}
+      <section className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <KPI
+          title="Total Users"
+          icon="👥"
+          value={kpis ? kpis.totalUsers : "—"}
         />
+        <KPI
+          title="Active Users"
+          icon="🔥"
+          value={kpis ? kpis.activeUsers : "—"}
+        />
+        <KPI
+          title="New (30d)"
+          icon="🆕"
+          value={kpis ? kpis.recentUsers : "—"}
+        />
+        <KPI
+          title="Revenue (est.)"
+          icon="💰"
+          value={kpis ? `$${kpis.revenue}` : "—"}
+        />
+      </section>
 
-        <button
-          onClick={sendMessage}
-          className="bg-pink-500 hover:bg-pink-600 text-white font-semibold w-full mt-3 py-2 rounded-lg transition-all"
-        >
-          Send 💞
-        </button>
+      {/* Create Report */}
+      <section className="bg-white/70 backdrop-blur-md p-6 rounded-2xl shadow-md border border-gray-100">
+        <h2 className="text-lg font-semibold mb-3 text-gray-700">
+          📝 Create a Report
+        </h2>
+        <form onSubmit={createReport} className="space-y-3">
+          <input
+            required
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Report title"
+            className="w-full p-3 border rounded focus:ring-2 focus:ring-indigo-400"
+          />
+          <textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="Short description"
+            className="w-full p-3 border rounded focus:ring-2 focus:ring-indigo-400"
+            rows={3}
+          />
+          <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded transition">
+            Create Report
+          </button>
+        </form>
+      </section>
 
-        <div className="mt-6 max-h-80 overflow-y-auto space-y-2">
-          {all.length === 0 ? (
-            <p className="text-center text-gray-500 italic">
-              No messages yet — send your first love note 💕
-            </p>
+      {/* Reports List */}
+      <section>
+        <h2 className="text-lg font-semibold mb-3 text-gray-700">
+          📄 My Reports
+        </h2>
+        <div className="space-y-4">
+          {reports.length === 0 ? (
+            <div className="text-gray-500">No reports yet</div>
           ) : (
-            all.map((m) => (
+            reports.map((r) => (
               <div
-                key={m._id}
-                className="p-3 rounded-xl bg-pink-50 border border-pink-200 text-gray-800 shadow-sm"
+                key={r._id}
+                className="bg-white/60 backdrop-blur-md p-4 rounded-xl shadow flex justify-between border border-gray-100"
               >
-                {m.message}
+                <div>
+                  <div className="font-bold text-indigo-600">{r.title}</div>
+                  <div className="text-sm text-gray-500">
+                    {new Date(r.createdAt).toLocaleString()}
+                  </div>
+                  <p className="mt-2 text-gray-700">
+                    {r.value ? `Value: ${r.value}` : ""}
+                  </p>
+                </div>
+                <button
+                  onClick={() => deleteReport(r._id)}
+                  className="text-red-600 hover:underline"
+                >
+                  Delete
+                </button>
               </div>
             ))
           )}
         </div>
-      </div>
+      </section>
     </div>
   );
 }
